@@ -1,0 +1,1245 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Al Gardenia Market — Price Manager</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Outfit:wght@300;400;500;600&family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.21.1/zxing-browser.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/zxing-js/0.21.1/zxing-library.min.js"></script>
+<!-- Firebase -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+import { getDatabase, ref, onValue, set, remove, push } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js";
+
+// ── YOUR FIREBASE CONFIG ─────────────────────────────────────────
+// STEP 1: Go to https://console.firebase.google.com
+// STEP 2: Create a free project → Add Web App → copy config here
+// STEP 3: In Firebase console → Realtime Database → Create database (test mode)
+const firebaseConfig = {
+  apiKey: "PASTE_YOUR_API_KEY_HERE",
+  authDomain: "PASTE_YOUR_AUTH_DOMAIN_HERE",
+  databaseURL: "PASTE_YOUR_DATABASE_URL_HERE",
+  projectId: "PASTE_YOUR_PROJECT_ID_HERE",
+  storageBucket: "PASTE_YOUR_STORAGE_BUCKET_HERE",
+  messagingSenderId: "PASTE_YOUR_MESSAGING_SENDER_ID_HERE",
+  appId: "PASTE_YOUR_APP_ID_HERE"
+};
+
+// Check if config is filled in
+const configReady = !firebaseConfig.apiKey.includes('PASTE');
+
+if (configReady) {
+  try {
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+    const productsRef = ref(db, 'algardenia/products');
+
+    // Expose DB functions to global scope for use in main script
+    window._fbRef = productsRef;
+    window._fbSet = (id, data) => set(ref(db, `algardenia/products/${id}`), data);
+    window._fbRemove = (id) => remove(ref(db, `algardenia/products/${id}`));
+    window._fbOnValue = (cb) => onValue(productsRef, cb);
+    window._fbReady = true;
+
+    // Signal app that Firebase is ready
+    document.dispatchEvent(new Event('firebase-ready'));
+  } catch(e) {
+    console.warn('Firebase init error:', e);
+    window._fbReady = false;
+    document.dispatchEvent(new Event('firebase-ready'));
+  }
+} else {
+  window._fbReady = false;
+  window._fbConfigMissing = true;
+  document.dispatchEvent(new Event('firebase-ready'));
+}
+</script>
+<style>
+  :root{
+    --bg:#f0f4f8;--surface:#fff;--surface2:#f7f9fc;--border:#e2e8f0;
+    --text:#1a202c;--text2:#4a5568;--text3:#a0aec0;
+    --accent:#2563eb;--accent2:#1d4ed8;
+    --green:#059669;--green-bg:#ecfdf5;
+    --yellow:#d97706;--yellow-bg:#fffbeb;
+    --red:#dc2626;--red-bg:#fef2f2;
+    --shadow:0 1px 3px rgba(0,0,0,.07),0 4px 16px rgba(0,0,0,.05);
+    --shadow-lg:0 8px 32px rgba(0,0,0,.12);
+    --radius:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{font-family:'Outfit',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;font-size:14px;}
+  body.ar{font-family:'Cairo',sans-serif;}
+
+  /* SYNC STATUS BAR */
+  #syncBar{
+    position:fixed;top:0;left:0;right:0;z-index:999;
+    padding:10px 20px;font-size:13px;font-weight:600;
+    display:flex;align-items:center;gap:10px;
+    transition:all .4s;transform:translateY(-60px);
+  }
+  #syncBar.show{transform:translateY(0);}
+  #syncBar.syncing{background:#1e293b;color:#94a3b8;}
+  #syncBar.synced{background:#059669;color:#fff;}
+  #syncBar.error{background:#dc2626;color:#fff;}
+  #syncBar.offline{background:#d97706;color:#fff;}
+  #syncBar.setup{background:#7c3aed;color:#fff;}
+  .sync-dot{width:8px;height:8px;border-radius:50%;background:currentColor;animation:pulse2 1.2s infinite;}
+  @keyframes pulse2{0%,100%{opacity:1}50%{opacity:.3}}
+
+  /* SETUP BANNER */
+  #setupBanner{
+    background:linear-gradient(135deg,#7c3aed,#6d28d9);
+    color:#fff;padding:14px 28px;
+    display:none;align-items:center;gap:12px;
+    font-size:13px;
+  }
+  #setupBanner.show{display:flex;}
+  #setupBanner strong{font-size:14px;}
+  .setup-steps{font-size:12px;opacity:.85;margin-top:4px;}
+  .setup-link{
+    margin-left:auto;padding:7px 14px;border-radius:8px;
+    background:rgba(255,255,255,.2);border:1px solid rgba(255,255,255,.3);
+    color:#fff;font-size:12px;font-weight:700;cursor:pointer;
+    text-decoration:none;white-space:nowrap;
+  }
+  .setup-link:hover{background:rgba(255,255,255,.3);}
+  body.ar #setupBanner{direction:rtl;}
+  body.ar .setup-link{margin-left:0;margin-right:auto;}
+
+  /* SIDEBAR */
+  .sidebar{position:fixed;left:0;top:0;bottom:0;width:224px;background:#1e293b;display:flex;flex-direction:column;z-index:100;box-shadow:2px 0 20px rgba(0,0,0,.15);}
+  body.ar .sidebar{left:auto;right:0;box-shadow:-2px 0 20px rgba(0,0,0,.15);}
+  .sidebar-logo{padding:22px 20px 18px;border-bottom:1px solid #334155;}
+  .mark{width:36px;height:36px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:18px;margin-bottom:10px;}
+  .shop-name{font-family:'Syne',sans-serif;font-weight:700;font-size:15px;color:#f1f5f9;letter-spacing:-.3px;line-height:1.3;}
+  body.ar .shop-name{font-family:'Cairo',sans-serif;}
+  .shop-sub{font-size:11px;color:#64748b;letter-spacing:.5px;margin-top:2px;}
+
+  /* SYNC INDICATOR in sidebar */
+  .sync-status-pill{
+    display:flex;align-items:center;gap:6px;
+    margin:8px 12px 0;padding:7px 10px;border-radius:8px;
+    font-size:11px;font-weight:600;
+    background:rgba(255,255,255,.05);border:1px solid #334155;
+    color:#64748b;
+  }
+  .sync-status-pill .s-dot{width:7px;height:7px;border-radius:50%;background:#64748b;flex-shrink:0;}
+  .sync-status-pill.live .s-dot{background:#22c55e;animation:pulse2 1.5s infinite;}
+  .sync-status-pill.live{color:#22c55e;border-color:#166534;}
+  .sync-status-pill.offline .s-dot{background:#f59e0b;}
+  .sync-status-pill.offline{color:#f59e0b;border-color:#78350f;}
+  .sync-status-pill.setup .s-dot{background:#a78bfa;}
+  .sync-status-pill.setup{color:#a78bfa;border-color:#4c1d95;}
+
+  .nav-section{padding:12px 12px 8px;flex:1;overflow-y:auto;}
+  .nav-label{font-size:10px;font-weight:600;letter-spacing:1.2px;color:#475569;padding:0 8px;margin-bottom:6px;text-transform:uppercase;}
+  .nav-item{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;cursor:pointer;color:#94a3b8;font-size:13.5px;font-weight:500;transition:all .15s;margin-bottom:2px;border:none;background:none;width:100%;text-align:left;}
+  body.ar .nav-item{text-align:right;flex-direction:row-reverse;}
+  .nav-item:hover{background:#334155;color:#e2e8f0;}
+  .nav-item.active{background:#2563eb;color:#fff;}
+  .nav-item .icon{font-size:16px;width:20px;text-align:center;}
+  .nav-badge{margin-left:auto;background:rgba(255,255,255,.15);font-size:10px;padding:2px 6px;border-radius:10px;}
+  body.ar .nav-badge{margin-left:0;margin-right:auto;}
+  .lang-btn{display:flex;align-items:center;justify-content:center;gap:8px;margin:10px 12px 0;padding:9px 10px;border-radius:8px;border:1.5px solid #334155;background:none;color:#94a3b8;font-size:13px;font-weight:600;cursor:pointer;transition:all .2s;width:calc(100% - 24px);}
+  .lang-btn:hover{background:#334155;color:#fff;}
+  .sidebar-footer{padding:12px 12px;border-top:1px solid #334155;}
+  .clock{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;color:#f1f5f9;text-align:center;}
+  .clock-date{font-size:11px;color:#64748b;text-align:center;margin-top:2px;}
+
+  /* MAIN */
+  .main{margin-left:224px;min-height:100vh;display:flex;flex-direction:column;}
+  body.ar .main{margin-left:0;margin-right:224px;}
+  .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;gap:14px;position:sticky;top:0;z-index:50;}
+  .search-wrap{position:relative;flex:1;max-width:420px;}
+  .search-wrap .si{position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--text3);font-size:15px;pointer-events:none;}
+  body.ar .search-wrap .si{left:auto;right:13px;}
+  .search-wrap input{width:100%;background:var(--surface2);border:1.5px solid var(--border);border-radius:10px;padding:9px 12px 9px 38px;font-family:'Outfit',sans-serif;font-size:14px;color:var(--text);outline:none;transition:border .15s;}
+  body.ar .search-wrap input{padding:9px 38px 9px 12px;font-family:'Cairo',sans-serif;text-align:right;}
+  .search-wrap input:focus{border-color:var(--accent);background:#fff;}
+  .search-wrap input::placeholder{color:var(--text3);}
+  .search-kbd{position:absolute;right:10px;top:50%;transform:translateY(-50%);background:var(--border);border-radius:5px;padding:2px 6px;font-size:11px;color:var(--text3);font-family:monospace;}
+  body.ar .search-kbd{right:auto;left:10px;}
+  .topbar-right{display:flex;align-items:center;gap:10px;margin-left:auto;}
+  body.ar .topbar-right{margin-left:0;margin-right:auto;}
+  .cat-pills{display:flex;gap:6px;flex-wrap:wrap;}
+  .cat-pill{padding:5px 13px;border-radius:20px;font-size:12px;font-weight:500;border:1.5px solid var(--border);background:var(--surface);color:var(--text2);cursor:pointer;transition:all .15s;white-space:nowrap;}
+  .cat-pill:hover{border-color:var(--accent);color:var(--accent);}
+  .cat-pill.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  .btn{padding:9px 16px;border-radius:9px;font-family:'Outfit',sans-serif;font-size:13.5px;font-weight:600;cursor:pointer;border:none;display:flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;}
+  body.ar .btn{font-family:'Cairo',sans-serif;}
+  .btn-primary{background:var(--accent);color:#fff;}
+  .btn-primary:hover{background:var(--accent2);transform:translateY(-1px);box-shadow:0 4px 12px rgba(37,99,235,.35);}
+  .btn-ghost{background:var(--surface2);color:var(--text2);border:1.5px solid var(--border);}
+  .btn-ghost:hover{background:var(--border);}
+  .btn-scan{background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;}
+  .btn-scan:hover{transform:translateY(-1px);box-shadow:0 4px 12px rgba(124,58,237,.4);}
+
+  /* CONTENT */
+  .content{padding:24px 28px;flex:1;}
+  .stats-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:22px;}
+  .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow);transition:transform .15s,box-shadow .15s;}
+  .stat-card:hover{transform:translateY(-2px);box-shadow:var(--shadow-lg);}
+  .stat-card .lbl{font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);margin-bottom:8px;}
+  body.ar .stat-card .lbl{letter-spacing:0;font-size:12px;}
+  .stat-card .val{font-family:'Syne',sans-serif;font-size:26px;font-weight:700;color:var(--text);line-height:1;}
+  .stat-card .sub{font-size:12px;color:var(--text3);margin-top:5px;}
+  .low-stock-banner{background:linear-gradient(90deg,#fef3c7,#fde68a);border:1px solid #fbbf24;border-radius:10px;padding:12px 18px;margin-bottom:18px;display:flex;align-items:center;gap:10px;font-size:13px;font-weight:500;color:#78350f;cursor:pointer;}
+
+  /* TABLE */
+  .table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+  .table-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+  .table-title{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;color:var(--text);}
+  body.ar .table-title{font-family:'Cairo',sans-serif;}
+  .table-count{font-size:12px;color:var(--text3);}
+  .table-actions{display:flex;gap:8px;align-items:center;}
+  .sort-btn{padding:6px 12px;border-radius:7px;font-size:12px;font-weight:500;border:1.5px solid var(--border);background:var(--surface2);color:var(--text2);cursor:pointer;transition:all .15s;}
+  .sort-btn.active{border-color:var(--accent);color:var(--accent);background:#eff6ff;}
+  table{width:100%;border-collapse:collapse;}
+  thead th{background:var(--surface2);padding:11px 16px;font-size:11px;font-weight:600;letter-spacing:.8px;text-transform:uppercase;color:var(--text3);text-align:left;border-bottom:1px solid var(--border);cursor:pointer;user-select:none;white-space:nowrap;}
+  body.ar thead th{text-align:right;letter-spacing:0;font-size:12px;}
+  thead th:hover{color:var(--accent);}
+  tbody tr{border-bottom:1px solid #f1f5f9;transition:background .12s;cursor:pointer;}
+  tbody tr:last-child{border-bottom:none;}
+  tbody tr:hover{background:#f8faff;}
+  tbody td{padding:13px 16px;vertical-align:middle;}
+  body.ar tbody td{text-align:right;}
+  .item-name{font-weight:600;font-size:14px;color:var(--text);}
+  .item-barcode{font-size:11px;color:var(--text3);font-family:monospace;margin-top:2px;}
+  .badge{display:inline-block;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600;}
+  .badge-blue{background:#eff6ff;color:#2563eb;}.badge-green{background:var(--green-bg);color:var(--green);}
+  .badge-yellow{background:var(--yellow-bg);color:var(--yellow);}.badge-red{background:var(--red-bg);color:var(--red);}
+  .badge-gray{background:#f1f5f9;color:#64748b;}
+  .price-cost{font-size:13px;color:var(--text2);}
+  .price-retail{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;color:var(--text);}
+  .margin-bar-wrap{display:flex;align-items:center;gap:8px;}
+  body.ar .margin-bar-wrap{flex-direction:row-reverse;}
+  .margin-bar-bg{height:6px;border-radius:3px;background:var(--border);flex:1;overflow:hidden;}
+  .margin-bar-fill{height:100%;border-radius:3px;}
+  .margin-pct{font-size:12px;font-weight:700;min-width:32px;}
+  .stock-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:5px;}
+  body.ar .stock-dot{margin-right:0;margin-left:5px;}
+  .action-btns{display:flex;gap:5px;}
+  body.ar .action-btns{justify-content:flex-end;}
+  .icon-btn{width:30px;height:30px;border-radius:7px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:13px;transition:all .15s;}
+  .icon-btn:hover{border-color:var(--accent);background:#eff6ff;}
+  .icon-btn.del:hover{border-color:var(--red);background:var(--red-bg);}
+  .empty-state{padding:60px;text-align:center;color:var(--text3);}
+  .empty-state .icon{font-size:48px;margin-bottom:12px;}
+
+  /* CALC */
+  .calc-panel{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:18px 20px;box-shadow:var(--shadow);margin-bottom:22px;}
+  .calc-title{font-family:'Syne',sans-serif;font-size:13px;font-weight:700;color:var(--text);margin-bottom:12px;}
+  body.ar .calc-title{font-family:'Cairo',sans-serif;}
+  .calc-row{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;}
+  .calc-group{display:flex;flex-direction:column;gap:4px;}
+  .calc-group label{font-size:11px;font-weight:600;color:var(--text3);letter-spacing:.5px;text-transform:uppercase;}
+  .calc-group input{padding:8px 11px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface2);font-family:'Outfit',sans-serif;font-size:14px;color:var(--text);width:120px;outline:none;transition:border .15s;}
+  .calc-group input:focus{border-color:var(--accent);background:#fff;}
+  .calc-result{background:linear-gradient(135deg,#1e293b,#334155);border-radius:10px;padding:10px 18px;color:#f1f5f9;font-size:13px;display:flex;flex-direction:column;gap:3px;min-width:160px;}
+  .calc-result .cr-label{font-size:11px;color:#94a3b8;letter-spacing:.5px;}
+  .calc-result .cr-val{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;}
+
+  /* MODALS */
+  .overlay{position:fixed;inset:0;background:rgba(15,23,42,.6);backdrop-filter:blur(6px);z-index:200;display:none;align-items:center;justify-content:center;}
+  .overlay.open{display:flex;}
+  .modal{background:var(--surface);border-radius:16px;width:460px;max-width:95vw;box-shadow:var(--shadow-lg);animation:modalIn .2s ease;max-height:92vh;overflow-y:auto;}
+  body.ar .modal{direction:rtl;}
+  @keyframes modalIn{from{opacity:0;transform:translateY(12px) scale(.98)}to{opacity:1;transform:translateY(0) scale(1)}}
+  .modal-head{padding:22px 24px 0;display:flex;align-items:flex-start;justify-content:space-between;}
+  .modal-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;}
+  body.ar .modal-title{font-family:'Cairo',sans-serif;}
+  .modal-sub{font-size:13px;color:var(--text3);margin-top:2px;}
+  .modal-close{width:30px;height:30px;border-radius:7px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;transition:all .15s;flex-shrink:0;}
+  .modal-close:hover{background:var(--border);}
+  .modal-body{padding:20px 24px;}
+  .form-row{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .form-group{margin-bottom:14px;}
+  .form-group label{display:block;font-size:12px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--text2);margin-bottom:6px;}
+  body.ar .form-group label{letter-spacing:0;font-size:13px;}
+  .form-group input,.form-group select{width:100%;border:1.5px solid var(--border);border-radius:9px;padding:10px 13px;font-family:'Outfit',sans-serif;font-size:14px;color:var(--text);background:var(--surface2);outline:none;transition:border .15s;}
+  body.ar .form-group input,body.ar .form-group select{font-family:'Cairo',sans-serif;text-align:right;}
+  .form-group input:focus,.form-group select:focus{border-color:var(--accent);background:#fff;box-shadow:0 0 0 3px rgba(37,99,235,.08);}
+  .barcode-input-wrap{position:relative;}
+  .barcode-scan-btn{position:absolute;right:6px;top:50%;transform:translateY(-50%);padding:4px 10px;border-radius:6px;background:linear-gradient(135deg,#7c3aed,#6d28d9);color:#fff;border:none;font-size:12px;font-weight:600;cursor:pointer;}
+  body.ar .barcode-scan-btn{right:auto;left:6px;}
+  body.ar #fBarcode{padding-left:90px;padding-right:13px;}
+  .profit-preview{background:linear-gradient(135deg,#eff6ff,#f0fdf4);border:1px solid #bfdbfe;border-radius:10px;padding:14px 16px;margin-bottom:16px;display:none;}
+  .profit-preview.show{display:block;}
+  .profit-preview .row{display:flex;justify-content:space-between;margin-bottom:6px;}
+  .profit-preview .row:last-child{margin-bottom:0;}
+  .profit-preview .pkey{font-size:12px;color:var(--text3);}
+  .profit-preview .pval{font-size:13px;font-weight:700;color:var(--text);}
+  .label-preview{background:#fff;border:2px dashed var(--border);border-radius:10px;padding:14px;margin-top:14px;text-align:center;display:none;}
+  .label-preview.show{display:block;}
+  .label-preview .lname{font-family:'Syne',sans-serif;font-size:15px;font-weight:700;}
+  .label-preview .lprice{font-size:28px;font-weight:800;color:var(--accent);font-family:'Syne',sans-serif;}
+  .label-preview .lsmall{font-size:11px;color:var(--text3);}
+  .modal-foot{padding:0 24px 22px;display:flex;gap:10px;}
+
+  /* SCANNER */
+  #scannerModal{position:fixed;inset:0;background:#000;z-index:400;display:none;flex-direction:column;align-items:center;justify-content:center;padding:20px;}
+  #scannerModal.open{display:flex;}
+  .scanner-header{color:#fff;text-align:center;margin-bottom:20px;}
+  .scanner-header h2{font-family:'Syne',sans-serif;font-size:22px;font-weight:700;margin-bottom:6px;}
+  body.ar .scanner-header h2{font-family:'Cairo',sans-serif;}
+  .scanner-header p{font-size:13px;color:#94a3b8;}
+  .scanner-box{position:relative;width:min(320px,90vw);height:260px;border-radius:16px;overflow:hidden;background:#111;box-shadow:0 0 0 3px #7c3aed,0 0 40px rgba(124,58,237,.5);}
+  #scanVideo{width:100%;height:100%;object-fit:cover;display:block;}
+  .scan-line{position:absolute;left:0;right:0;height:2px;background:linear-gradient(90deg,transparent,#7c3aed,#a855f7,#7c3aed,transparent);animation:scanMove 2s linear infinite;box-shadow:0 0 8px rgba(168,85,247,.8);}
+  @keyframes scanMove{0%{top:8%}50%{top:88%}100%{top:8%}}
+  .corner{position:absolute;width:22px;height:22px;border-color:#a855f7;border-style:solid;}
+  .corner.tl{top:12px;left:12px;border-width:3px 0 0 3px;border-radius:4px 0 0 0;}
+  .corner.tr{top:12px;right:12px;border-width:3px 3px 0 0;border-radius:0 4px 0 0;}
+  .corner.bl{bottom:12px;left:12px;border-width:0 0 3px 3px;border-radius:0 0 0 4px;}
+  .corner.br{bottom:12px;right:12px;border-width:0 3px 3px 0;border-radius:0 0 4px 0;}
+  .scanner-cam-select{margin-top:12px;width:min(320px,90vw);}
+  .scanner-cam-select select{width:100%;padding:8px 12px;border-radius:8px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.2);color:#e2e8f0;font-size:12px;outline:none;}
+  .scanner-status{margin-top:14px;color:#94a3b8;font-size:13px;text-align:center;}
+  .pulse{display:inline-block;width:8px;height:8px;border-radius:50%;background:#a855f7;margin-right:6px;animation:pulse2 1.2s infinite;}
+  .scanner-result{margin-top:16px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);border-radius:12px;padding:14px 20px;width:min(320px,90vw);display:none;}
+  .scanner-result.show{display:block;}
+  .sr-barcode{font-family:monospace;font-size:12px;color:#a855f7;margin-bottom:6px;}
+  .sr-name{font-family:'Syne',sans-serif;font-size:17px;font-weight:700;color:#fff;}
+  body.ar .sr-name{font-family:'Cairo',sans-serif;text-align:right;}
+  .sr-price{font-size:13px;color:#94a3b8;margin-top:4px;}
+  .sr-detail{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;}
+  .sr-chip{background:rgba(255,255,255,.1);border-radius:6px;padding:3px 9px;font-size:12px;color:#e2e8f0;}
+  .sr-chip.green{background:rgba(5,150,105,.25);color:#34d399;}
+  .sr-chip.yellow{background:rgba(217,119,6,.25);color:#fbbf24;}
+  .sr-chip.red{background:rgba(220,38,38,.25);color:#f87171;}
+  .sr-not-found{color:#f87171;font-size:14px;}
+  .scanner-actions{margin-top:14px;display:flex;gap:10px;width:min(320px,90vw);}
+  .scanner-err{color:#f87171;font-size:13px;text-align:center;margin-top:10px;max-width:300px;}
+
+  /* QUICK VIEW */
+  .qv-overlay{position:fixed;inset:0;z-index:150;display:none;justify-content:flex-end;}
+  body.ar .qv-overlay{justify-content:flex-start;}
+  .qv-overlay.open{display:flex;}
+  .qv-backdrop{flex:1;background:rgba(15,23,42,.3);}
+  .qv-panel{width:320px;background:var(--surface);box-shadow:-4px 0 32px rgba(0,0,0,.15);padding:24px;animation:slideIn .25s ease;overflow-y:auto;}
+  body.ar .qv-panel{box-shadow:4px 0 32px rgba(0,0,0,.15);direction:rtl;animation:slideInR .25s ease;}
+  @keyframes slideIn{from{transform:translateX(100%)}to{transform:translateX(0)}}
+  @keyframes slideInR{from{transform:translateX(-100%)}to{transform:translateX(0)}}
+  .qv-title{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;margin-bottom:4px;}
+  body.ar .qv-title{font-family:'Cairo',sans-serif;}
+  .qv-cat{margin-bottom:18px;}
+  .qv-row{display:flex;justify-content:space-between;padding:12px 0;border-bottom:1px solid var(--border);align-items:center;}
+  .qv-row:last-child{border-bottom:none;}
+  .qv-key{font-size:12px;color:var(--text3);font-weight:500;}
+  .qv-val{font-size:14px;font-weight:600;color:var(--text);}
+
+  /* TOAST */
+  #toast{position:fixed;bottom:24px;right:24px;background:var(--text);color:#fff;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,.2);transform:translateY(80px);opacity:0;transition:all .3s cubic-bezier(.34,1.56,.64,1);z-index:600;}
+  body.ar #toast{right:auto;left:24px;}
+  #toast.show{transform:translateY(0);opacity:1;}
+  #toast.success{background:#059669;}#toast.error{background:#dc2626;}
+  #toast.info{background:#2563eb;}#toast.scan{background:linear-gradient(135deg,#7c3aed,#6d28d9);}
+
+  /* LOADING SCREEN */
+  #loadingScreen{position:fixed;inset:0;background:#1e293b;z-index:1000;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;transition:opacity .4s;}
+  #loadingScreen.hide{opacity:0;pointer-events:none;}
+  .load-logo{width:56px;height:56px;background:linear-gradient(135deg,#3b82f6,#1d4ed8);border-radius:16px;display:flex;align-items:center;justify-content:center;font-size:28px;}
+  .load-text{font-family:'Syne',sans-serif;font-size:18px;font-weight:700;color:#f1f5f9;}
+  .load-sub{font-size:13px;color:#64748b;}
+  .load-bar{width:160px;height:3px;background:#334155;border-radius:3px;overflow:hidden;}
+  .load-bar-fill{height:100%;background:linear-gradient(90deg,#3b82f6,#7c3aed);border-radius:3px;animation:loadAnim 1.8s ease-in-out infinite;}
+  @keyframes loadAnim{0%{width:0%;margin-left:0}50%{width:80%}100%{width:0%;margin-left:100%}}
+
+  ::-webkit-scrollbar{width:5px;height:5px;}::-webkit-scrollbar-track{background:transparent;}::-webkit-scrollbar-thumb{background:var(--border);border-radius:10px;}
+  input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none;}
+</style>
+</head>
+<body>
+
+<!-- LOADING SCREEN -->
+<div id="loadingScreen">
+  <div class="load-logo">🏪</div>
+  <div class="load-text">Al Gardenia Market</div>
+  <div class="load-sub" id="loadMsg">Connecting to cloud…</div>
+  <div class="load-bar"><div class="load-bar-fill"></div></div>
+</div>
+
+<!-- SYNC STATUS BAR -->
+<div id="syncBar"><span class="sync-dot"></span><span id="syncMsg">Syncing…</span></div>
+
+<!-- SETUP BANNER (shown when Firebase not configured) -->
+<div id="setupBanner">
+  <div>
+    <strong>☁️ Setup Cloud Sync to save data forever across all devices</strong>
+    <div class="setup-steps">Takes 3 minutes · Free forever · Works on any device</div>
+  </div>
+  <a class="setup-link" href="https://console.firebase.google.com" target="_blank">Open Firebase →</a>
+</div>
+
+<aside class="sidebar">
+  <div class="sidebar-logo">
+    <div class="mark">🏪</div>
+    <div class="shop-name" id="shopName">Al Gardenia<br>Market</div>
+    <div class="shop-sub" id="shopSub">PRICE MANAGER</div>
+  </div>
+
+  <!-- SYNC PILL -->
+  <div class="sync-status-pill setup" id="syncPill">
+    <div class="s-dot"></div>
+    <span id="syncPillText">Local only</span>
+  </div>
+
+  <nav class="nav-section">
+    <div class="nav-label" id="navLabel">Menu</div>
+    <button class="nav-item active" onclick="setView('inventory',this)"><span class="icon">📦</span><span data-i="nav_inventory">Inventory</span></button>
+    <button class="nav-item" onclick="openScannerModal('lookup');setView('inventory',this)"><span class="icon">📷</span><span data-i="nav_scan">Scan Barcode</span></button>
+    <button class="nav-item" onclick="setView('calc',this)"><span class="icon">🧮</span><span data-i="nav_calc">Price Calculator</span></button>
+    <button class="nav-item" onclick="setView('lowstock',this)"><span class="icon">⚠️</span><span data-i="nav_lowstock">Low Stock</span><span class="nav-badge" id="lowStockCount">0</span></button>
+    <button class="nav-item" onclick="exportCSV()"><span class="icon">📤</span><span data-i="nav_export">Export CSV</span></button>
+    <button class="nav-item" onclick="openAdd()"><span class="icon">➕</span><span data-i="nav_add">Add Item</span></button>
+    <button class="lang-btn" onclick="toggleLang()">
+      <span id="langFlag">🇱🇧</span><span id="langBtnText">عربي</span>
+    </button>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="clock" id="clock">--:--</div>
+    <div class="clock-date" id="clockDate">--</div>
+  </div>
+</aside>
+
+<div class="main">
+  <div class="topbar">
+    <div class="search-wrap">
+      <span class="si">🔍</span>
+      <input type="text" id="searchInput" data-i-placeholder="search_placeholder" placeholder="Search items, barcode, category…" autocomplete="off">
+      <span class="search-kbd">Ctrl+K</span>
+    </div>
+    <div class="cat-pills" id="catPills"></div>
+    <div class="topbar-right">
+      <button class="btn btn-scan" onclick="openScannerModal('lookup')">📷 <span data-i="btn_scan">Scan</span></button>
+      <button class="btn btn-ghost" onclick="exportCSV()">📤 <span data-i="btn_export">Export</span></button>
+      <button class="btn btn-primary" onclick="openAdd()">+ <span data-i="btn_add">Add Item</span></button>
+    </div>
+  </div>
+
+  <div class="content">
+    <div class="low-stock-banner" id="lowStockBanner" onclick="setView('lowstock')" style="display:none">⚠️ <span id="lowStockMsg"></span></div>
+    <div class="stats-grid" id="statsGrid"></div>
+
+    <div class="calc-panel" id="calcPanel" style="display:none">
+      <div class="calc-title" data-i="calc_title">⚡ Quick Price Calculator</div>
+      <div class="calc-row">
+        <div class="calc-group"><label data-i="calc_cost">Cost Price ($)</label><input type="number" id="cCost" placeholder="0.00" oninput="calcMargin()"></div>
+        <div class="calc-group"><label data-i="calc_margin">Target Margin (%)</label><input type="number" id="cMargin" placeholder="30" oninput="calcRetail()"></div>
+        <div class="calc-group"><label data-i="calc_retail">Retail Price ($)</label><input type="number" id="cRetail" placeholder="0.00" oninput="calcMarginFromRetail()"></div>
+        <div class="calc-result">
+          <span class="cr-label" data-i="calc_profit_unit">PROFIT / UNIT</span><span class="cr-val" id="calcProfit">—</span>
+          <span class="cr-label" style="margin-top:6px" data-i="calc_margin_lbl">MARGIN</span><span class="cr-val" id="calcMarginOut">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="table-wrap">
+      <div class="table-header">
+        <div><div class="table-title" id="tableTitle">All Items</div><div class="table-count" id="tableCount">Loading…</div></div>
+        <div class="table-actions">
+          <button class="sort-btn" id="sName" onclick="toggleSort('name')" data-i="sort_name">Name ↕</button>
+          <button class="sort-btn" id="sRetail" onclick="toggleSort('retail')" data-i="sort_price">Price ↕</button>
+          <button class="sort-btn" id="sMargin" onclick="toggleSort('margin')" data-i="sort_margin">Margin ↕</button>
+        </div>
+      </div>
+      <table>
+        <thead><tr>
+          <th onclick="toggleSort('name')" data-i="th_item">Item Name</th>
+          <th data-i="th_cat">Category</th>
+          <th onclick="toggleSort('cost')" data-i="th_cost">Cost</th>
+          <th onclick="toggleSort('retail')" data-i="th_retail">Retail</th>
+          <th onclick="toggleSort('margin')" data-i="th_margin">Margin</th>
+          <th data-i="th_stock">Stock</th>
+          <th data-i="th_actions">Actions</th>
+        </tr></thead>
+        <tbody id="tableBody"></tbody>
+      </table>
+      <div class="empty-state" id="emptyState" style="display:none"><div class="icon">🔍</div><p data-i="empty_text">No items found.</p></div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD/EDIT MODAL -->
+<div class="overlay" id="modalOverlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-head">
+      <div><div class="modal-title" id="modalTitle">Add New Item</div><div class="modal-sub" data-i="modal_sub">Fill in the details below</div></div>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="editId">
+      <div class="form-group"><label data-i="f_name">Item Name *</label><input type="text" id="fName" data-i-placeholder="f_name_ph" placeholder="e.g. Pepsi 500ml" oninput="updateLabelPreview()"></div>
+      <div class="form-row">
+        <div class="form-group"><label data-i="f_cat">Category *</label>
+          <select id="fCat">
+            <option data-i-opt="cat_bev">Beverages</option><option data-i-opt="cat_groc">Grocery</option>
+            <option data-i-opt="cat_tob">Tobacco</option><option data-i-opt="cat_dairy">Dairy</option>
+            <option data-i-opt="cat_snack">Snacks</option><option data-i-opt="cat_clean">Cleaning</option>
+            <option data-i-opt="cat_frozen">Frozen</option><option data-i-opt="cat_bak">Bakery</option>
+            <option data-i-opt="cat_health">Health</option><option data-i-opt="cat_other">Other</option>
+          </select>
+        </div>
+        <div class="form-group"><label data-i="f_stock">Stock Qty</label><input type="number" id="fStock" placeholder="0" min="0"></div>
+      </div>
+      <div class="form-row">
+        <div class="form-group"><label data-i="f_cost">Cost Price ($) *</label><input type="number" id="fCost" placeholder="0.00" step="0.01" oninput="updateProfitPreview();updateLabelPreview()"></div>
+        <div class="form-group"><label data-i="f_retail">Retail Price ($) *</label><input type="number" id="fRetail" placeholder="0.00" step="0.01" oninput="updateProfitPreview();updateLabelPreview()"></div>
+      </div>
+      <div class="form-group">
+        <label data-i="f_barcode">Barcode / SKU</label>
+        <div class="barcode-input-wrap">
+          <input type="text" id="fBarcode" data-i-placeholder="f_barcode_ph" placeholder="Type or scan barcode…" oninput="updateLabelPreview()" style="padding-right:90px">
+          <button class="barcode-scan-btn" onclick="openScannerModal('fill')">📷 <span data-i="btn_scan">Scan</span></button>
+        </div>
+      </div>
+      <div class="profit-preview" id="profitPreview">
+        <div class="row"><span class="pkey" data-i="pp_profit">Profit per unit</span><span class="pval" id="ppProfit">—</span></div>
+        <div class="row"><span class="pkey" data-i="pp_margin">Margin</span><span class="pval" id="ppMargin">—</span></div>
+        <div class="row"><span class="pkey" data-i="pp_monthly">Monthly est. (100 units)</span><span class="pval" id="ppMonthly">—</span></div>
+      </div>
+      <div style="font-size:12px;font-weight:600;color:var(--text3);letter-spacing:.5px;text-transform:uppercase;margin-bottom:6px" data-i="label_prev_title">Price Label Preview</div>
+      <div class="label-preview" id="labelPreview">
+        <div class="lsmall">AL GARDENIA MARKET</div>
+        <div class="lname" id="lpName">—</div>
+        <div class="lprice" id="lpPrice">$0.00</div>
+        <div style="font-family:monospace;font-size:11px;letter-spacing:2px;margin-top:4px" id="lpBarcode">|||||||||||||||</div>
+        <div class="lsmall" id="lpDate"></div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()" style="flex:1" data-i="btn_cancel">Cancel</button>
+      <button class="btn btn-primary" onclick="saveItem()" style="flex:2" id="saveBtn">Add Item</button>
+    </div>
+  </div>
+</div>
+
+<!-- QUICK VIEW PANEL -->
+<div class="qv-overlay" id="qvOverlay">
+  <div class="qv-backdrop" onclick="closeQV()"></div>
+  <div class="qv-panel">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+      <div><div class="qv-title" id="qvName">—</div><div class="qv-cat" id="qvCat"></div></div>
+      <button class="modal-close" onclick="closeQV()">✕</button>
+    </div>
+    <div id="qvRows"></div>
+    <div style="margin-top:18px;display:flex;gap:8px">
+      <button class="btn btn-primary" style="flex:1" onclick="qvEdit()" data-i="btn_edit">✏️ Edit</button>
+      <button class="btn btn-ghost" style="flex:1" onclick="closeQV()" data-i="btn_close">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- SCANNER FULLSCREEN -->
+<div id="scannerModal">
+  <div class="scanner-header">
+    <h2>📷 <span data-i="scanner_title">Barcode Scanner</span></h2>
+    <p id="scannerModeLabel"></p>
+  </div>
+  <div class="scanner-box">
+    <video id="scanVideo" autoplay playsinline muted></video>
+    <canvas id="scanCanvas" style="display:none"></canvas>
+    <div class="scan-line"></div>
+    <div class="corner tl"></div><div class="corner tr"></div>
+    <div class="corner bl"></div><div class="corner br"></div>
+  </div>
+  <div class="scanner-cam-select"><select id="cameraSelect" onchange="switchCamera()"><option>Loading…</option></select></div>
+  <div class="scanner-status"><span class="pulse"></span><span id="scanStatus"></span></div>
+  <div id="scannerErr" class="scanner-err" style="display:none"></div>
+  <div class="scanner-result" id="scannerResult"></div>
+  <div class="scanner-actions">
+    <button class="btn" onclick="closeScannerModal()" style="flex:1;color:#fff;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08)" data-i="btn_close">✕ Close</button>
+    <button class="btn btn-primary" id="scanActionBtn" style="flex:2;display:none" onclick="scanAction()"></button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════
+// TRANSLATIONS
+// ══════════════════════════════════════════════════════════════════
+const T={
+  en:{
+    nav_inventory:'Inventory',nav_scan:'Scan Barcode',nav_calc:'Price Calculator',
+    nav_lowstock:'Low Stock',nav_export:'Export CSV',nav_add:'Add Item',
+    btn_scan:'Scan',btn_export:'Export',btn_add:'Add Item',btn_cancel:'Cancel',
+    btn_save_add:'Add Item',btn_save_edit:'Save Changes',btn_edit:'✏️ Edit',btn_close:'Close',
+    search_placeholder:'Search items, barcode, category…',
+    calc_title:'⚡ Quick Price Calculator',calc_cost:'Cost Price ($)',
+    calc_margin:'Target Margin (%)',calc_retail:'Retail Price ($)',
+    calc_profit_unit:'PROFIT / UNIT',calc_margin_lbl:'MARGIN',
+    sort_name:'Name ↕',sort_price:'Price ↕',sort_margin:'Margin ↕',
+    th_item:'Item Name',th_cat:'Category',th_cost:'Cost',th_retail:'Retail',
+    th_margin:'Margin',th_stock:'Stock',th_actions:'Actions',
+    modal_add:'Add New Item',modal_edit:'Edit Item',modal_sub:'Fill in the details below',
+    f_name:'Item Name *',f_name_ph:'e.g. Pepsi 500ml',f_cat:'Category *',
+    f_stock:'Stock Qty',f_cost:'Cost Price ($) *',f_retail:'Retail Price ($) *',
+    f_barcode:'Barcode / SKU',f_barcode_ph:'Type or scan barcode…',
+    pp_profit:'Profit per unit',pp_margin:'Margin',pp_monthly:'Monthly est. (100 units)',
+    label_prev_title:'Price Label Preview',
+    cat_bev:'Beverages',cat_groc:'Grocery',cat_tob:'Tobacco',cat_dairy:'Dairy',
+    cat_snack:'Snacks',cat_clean:'Cleaning',cat_frozen:'Frozen',cat_bak:'Bakery',
+    cat_health:'Health',cat_other:'Other',
+    scanner_title:'Barcode Scanner',scanner_sub:'Point camera at any barcode',
+    scanner_init:'Initialising…',scanner_scanning:'Scanning…',scanner_detected:'✓ Barcode detected!',
+    scan_use:'Use This',scan_fill_ready:'Ready to use — tap below',
+    scan_found:'Found: ',scan_not_found:'⚠️ Not found in inventory',
+    scan_not_found_sub:'Tap below to add it as a new item',
+    scan_view:'👁 View Item Details',scan_add_new:'➕ Add as New Item',
+    scan_mode_fill:'Scan to fill the barcode field',scan_mode_lookup:'Scan to look up an item instantly',
+    btn_use_barcode:'✓ Use This Barcode',btn_fill_barcode:'Barcode filled ✓',
+    stat_items:'Total Items',stat_margin:'Avg Margin',stat_units:'Total Units',stat_low:'Low Stock',
+    stat_db:'in database',stat_shown:'Across shown items',stat_stock:'In stock',stat_below:'Below 10 units',
+    all_items:'All Items',low_stock_title:'⚠️ Low Stock',
+    low_banner:'items running low — Click to view',low_banner_1:'item running low — Click to view',
+    empty_text:'No items found.',menu_label:'Menu',
+    qv_cost:'Cost Price',qv_retail:'Retail Price',qv_profit:'Profit / Unit',
+    qv_margin:'Margin',qv_stock:'Stock',qv_barcode:'Barcode',qv_monthly:'Est. Monthly (100u)',
+    confirm_delete:'Delete this item?',
+    toast_updated:'Item updated ✓',toast_added:'Item added ✓',toast_deleted:'Item deleted',
+    toast_err_name:'Item name is required',toast_err_price:'Enter valid prices',
+    toast_err_retail:'Retail must be ≥ cost',toast_exported:'CSV exported ✓',
+    toast_barcode_filled:'Barcode filled ✓',toast_new_barcode:'New barcode — add it!',
+    shop_sub:'PRICE MANAGER',lang_btn:'عربي',
+    sync_live:'☁️ Cloud Sync · Live',sync_local:'💾 Local Only',sync_offline:'📡 Offline',
+    sync_pill_live:'Cloud · Live',sync_pill_local:'Local only',sync_pill_offline:'Offline',
+    loading_cloud:'Connecting to cloud…',loading_local:'Loading local data…',loading_done:'Ready!',
+    setup_banner:'Setup Cloud Sync to save data forever across all devices',
+  },
+  ar:{
+    nav_inventory:'المخزون',nav_scan:'مسح الباركود',nav_calc:'حاسبة الأسعار',
+    nav_lowstock:'مخزون منخفض',nav_export:'تصدير CSV',nav_add:'إضافة منتج',
+    btn_scan:'مسح',btn_export:'تصدير',btn_add:'إضافة منتج',btn_cancel:'إلغاء',
+    btn_save_add:'إضافة المنتج',btn_save_edit:'حفظ التغييرات',btn_edit:'✏️ تعديل',btn_close:'إغلاق',
+    search_placeholder:'ابحث عن منتج، باركود، تصنيف…',
+    calc_title:'⚡ حاسبة الأسعار السريعة',calc_cost:'سعر التكلفة ($)',
+    calc_margin:'هامش الربح المستهدف (%)',calc_retail:'سعر البيع ($)',
+    calc_profit_unit:'الربح / وحدة',calc_margin_lbl:'هامش الربح',
+    sort_name:'الاسم ↕',sort_price:'السعر ↕',sort_margin:'الهامش ↕',
+    th_item:'اسم المنتج',th_cat:'التصنيف',th_cost:'التكلفة',th_retail:'سعر البيع',
+    th_margin:'الهامش',th_stock:'المخزون',th_actions:'الإجراءات',
+    modal_add:'إضافة منتج جديد',modal_edit:'تعديل المنتج',modal_sub:'أدخل التفاصيل أدناه',
+    f_name:'اسم المنتج *',f_name_ph:'مثال: بيبسي 500 مل',f_cat:'التصنيف *',
+    f_stock:'كمية المخزون',f_cost:'سعر التكلفة ($) *',f_retail:'سعر البيع ($) *',
+    f_barcode:'الباركود / SKU',f_barcode_ph:'اكتب أو امسح الباركود…',
+    pp_profit:'الربح لكل وحدة',pp_margin:'هامش الربح',pp_monthly:'تقدير شهري (100 وحدة)',
+    label_prev_title:'معاينة بطاقة السعر',
+    cat_bev:'مشروبات',cat_groc:'بقالة',cat_tob:'تبغ',cat_dairy:'ألبان',
+    cat_snack:'وجبات خفيفة',cat_clean:'منظفات',cat_frozen:'مجمدات',cat_bak:'مخبوزات',
+    cat_health:'صحة',cat_other:'أخرى',
+    scanner_title:'ماسح الباركود',scanner_sub:'وجّه الكاميرا نحو الباركود',
+    scanner_init:'جارٍ التشغيل…',scanner_scanning:'جارٍ المسح…',scanner_detected:'✓ تم اكتشاف الباركود!',
+    scan_use:'استخدم هذا',scan_fill_ready:'جاهز للاستخدام — اضغط أدناه',
+    scan_found:'تم العثور على: ',scan_not_found:'⚠️ المنتج غير موجود في المخزون',
+    scan_not_found_sub:'اضغط أدناه لإضافته كمنتج جديد',
+    scan_view:'👁 عرض تفاصيل المنتج',scan_add_new:'➕ إضافة كمنتج جديد',
+    scan_mode_fill:'امسح لتعبئة حقل الباركود',scan_mode_lookup:'امسح للبحث عن منتج فوراً',
+    btn_use_barcode:'✓ استخدم هذا الباركود',btn_fill_barcode:'تم تعبئة الباركود ✓',
+    stat_items:'إجمالي المنتجات',stat_margin:'متوسط الهامش',stat_units:'إجمالي الوحدات',stat_low:'مخزون منخفض',
+    stat_db:'في قاعدة البيانات',stat_shown:'للمنتجات الظاهرة',stat_stock:'في المخزون',stat_below:'أقل من 10 وحدات',
+    all_items:'جميع المنتجات',low_stock_title:'⚠️ مخزون منخفض',
+    low_banner:'منتجات مخزونها منخفض — اضغط للعرض',low_banner_1:'منتج مخزونه منخفض — اضغط للعرض',
+    empty_text:'لا توجد منتجات.',menu_label:'القائمة',
+    qv_cost:'سعر التكلفة',qv_retail:'سعر البيع',qv_profit:'الربح / وحدة',
+    qv_margin:'هامش الربح',qv_stock:'المخزون',qv_barcode:'الباركود',qv_monthly:'التقدير الشهري (100 وحدة)',
+    confirm_delete:'هل تريد حذف هذا المنتج؟',
+    toast_updated:'تم تحديث المنتج ✓',toast_added:'تمت إضافة المنتج ✓',toast_deleted:'تم حذف المنتج',
+    toast_err_name:'اسم المنتج مطلوب',toast_err_price:'أدخل أسعاراً صحيحة',
+    toast_err_retail:'سعر البيع يجب أن يكون ≥ التكلفة',toast_exported:'تم تصدير CSV ✓',
+    toast_barcode_filled:'تم تعبئة الباركود ✓',toast_new_barcode:'باركود جديد — أضفه!',
+    shop_sub:'مدير الأسعار',lang_btn:'English',
+    sync_live:'☁️ مزامنة سحابية · مباشر',sync_local:'💾 محلي فقط',sync_offline:'📡 غير متصل',
+    sync_pill_live:'سحابي · مباشر',sync_pill_local:'محلي فقط',sync_pill_offline:'غير متصل',
+    loading_cloud:'جارٍ الاتصال بالسحابة…',loading_local:'جارٍ تحميل البيانات…',loading_done:'جاهز!',
+    setup_banner:'فعّل المزامنة السحابية لحفظ البيانات للأبد على جميع الأجهزة',
+  }
+};
+
+let lang=localStorage.getItem('agm_lang')||'en';
+function t(k){return T[lang][k]||T['en'][k]||k;}
+
+function applyLang(){
+  const isAr=lang==='ar';
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',isAr?'rtl':'ltr');
+  document.body.classList.toggle('ar',isAr);
+  document.querySelectorAll('[data-i]').forEach(el=>{const k=el.getAttribute('data-i');if(T[lang][k])el.textContent=T[lang][k];});
+  document.querySelectorAll('[data-i-placeholder]').forEach(el=>{const k=el.getAttribute('data-i-placeholder');if(T[lang][k])el.placeholder=T[lang][k];});
+  document.querySelectorAll('[data-i-opt]').forEach(el=>{const k=el.getAttribute('data-i-opt');if(T[lang][k])el.textContent=T[lang][k];});
+  document.getElementById('shopSub').textContent=t('shop_sub');
+  document.getElementById('navLabel').textContent=t('menu_label');
+  document.getElementById('langBtnText').textContent=t('lang_btn');
+  document.getElementById('langFlag').textContent=isAr?'🇬🇧':'🇱🇧';
+  document.getElementById('scanStatus').textContent=t('scanner_init');
+  buildCatPills();render();
+}
+function toggleLang(){lang=lang==='en'?'ar':'en';localStorage.setItem('agm_lang',lang);applyLang();showToast(lang==='ar'?'تم التغيير إلى العربية 🇱🇧':'Switched to English 🇬🇧','info');}
+
+// ══════════════════════════════════════════════════════════════════
+// DATA & CLOUD SYNC
+// ══════════════════════════════════════════════════════════════════
+const DEMO_PRODUCTS=[
+  {id:'demo1',name:'Mineral Water 500ml',cat:'Beverages',cost:.30,retail:.75,stock:120,barcode:'6291003001001'},
+  {id:'demo2',name:'Coca-Cola 330ml',cat:'Beverages',cost:.45,retail:1.00,stock:64,barcode:'5449000000996'},
+  {id:'demo3',name:'Pepsi 330ml',cat:'Beverages',cost:.42,retail:.95,stock:48,barcode:'4002359051011'},
+  {id:'demo4',name:'White Sugar 1kg',cat:'Grocery',cost:.80,retail:1.50,stock:30,barcode:'6281234500001'},
+  {id:'demo5',name:'Sunflower Oil 1L',cat:'Grocery',cost:1.20,retail:2.25,stock:22,barcode:'6281234500002'},
+  {id:'demo6',name:'Full Cream Milk 1L',cat:'Dairy',cost:.90,retail:1.75,stock:18,barcode:'6221200000011'},
+  {id:'demo7',name:'Marlboro Red',cat:'Tobacco',cost:2.50,retail:4.00,stock:8,barcode:'7501032310013'},
+  {id:'demo8',name:'Lays Classic 40g',cat:'Snacks',cost:.35,retail:.75,stock:5,barcode:'6221168005024'},
+  {id:'demo9',name:'Ariel Washing 1kg',cat:'Cleaning',cost:1.60,retail:3.00,stock:14,barcode:'4084500000109'},
+  {id:'demo10',name:'Kiri Cheese 8pcs',cat:'Dairy',cost:1.80,retail:3.25,stock:10,barcode:'3228021013091'},
+];
+
+let products=[];
+let useCloud=false;
+let sortKey=null,sortAsc=true,currentView='inventory',currentCat='All',qvCurrentId=null;
+const CAT_COLORS={Beverages:'blue',Grocery:'green',Tobacco:'red',Dairy:'blue',Snacks:'yellow',Cleaning:'gray',Frozen:'blue',Bakery:'yellow',Health:'green',Other:'gray'};
+const CAT_KEYS={Beverages:'cat_bev',Grocery:'cat_groc',Tobacco:'cat_tob',Dairy:'cat_dairy',Snacks:'cat_snack',Cleaning:'cat_clean',Frozen:'cat_frozen',Bakery:'cat_bak',Health:'cat_health',Other:'cat_other'};
+
+// Generate unique ID
+function uid(){return 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,7);}
+
+// LOCAL STORAGE fallback
+function saveLocal(){localStorage.setItem('agm_v3',JSON.stringify(products));}
+function loadLocal(){
+  const saved=localStorage.getItem('agm_v3');
+  if(saved){try{products=JSON.parse(saved);}catch(e){products=[...DEMO_PRODUCTS];}}
+  else{products=[...DEMO_PRODUCTS];saveLocal();}
+}
+
+// CLOUD SAVE
+async function cloudSave(id,data){
+  if(!useCloud||!window._fbSet)return;
+  try{await window._fbSet(id,data);}catch(e){console.warn('Cloud save failed:',e);}
+}
+async function cloudDelete(id){
+  if(!useCloud||!window._fbRemove)return;
+  try{await window._fbRemove(id);}catch(e){console.warn('Cloud delete failed:',e);}
+}
+
+// SYNC STATUS UI
+function setSyncStatus(state){
+  const pill=document.getElementById('syncPill');
+  const pillText=document.getElementById('syncPillText');
+  pill.className='sync-status-pill '+state;
+  if(state==='live'){pillText.textContent=t('sync_pill_live');}
+  else if(state==='offline'){pillText.textContent=t('sync_pill_offline');}
+  else{pillText.textContent=t('sync_pill_local');}
+}
+
+function flashSyncBar(msg,type,dur=2200){
+  const bar=document.getElementById('syncBar');
+  document.getElementById('syncMsg').textContent=msg;
+  bar.className='show '+type;
+  setTimeout(()=>bar.classList.remove('show'),dur);
+}
+
+// INIT: wait for Firebase module then decide cloud or local
+document.addEventListener('firebase-ready',()=>{
+  document.getElementById('loadMsg').textContent=t('loading_cloud');
+
+  if(window._fbReady&&window._fbOnValue){
+    // Firebase connected — listen for real-time updates
+    useCloud=true;
+    setSyncStatus('live');
+    document.getElementById('setupBanner').classList.remove('show');
+
+    window._fbOnValue(snapshot=>{
+      const data=snapshot.val();
+      if(data){
+        products=Object.entries(data).map(([id,v])=>({...v,id}));
+      } else {
+        // First time: push demo data
+        products=[...DEMO_PRODUCTS];
+        products.forEach(p=>window._fbSet(p.id,p));
+      }
+      hideLoading();
+      buildCatPills();render();
+      setSyncStatus('live');
+    });
+
+    // offline detection
+    window.addEventListener('online',()=>{setSyncStatus('live');flashSyncBar(t('sync_live'),'synced');});
+    window.addEventListener('offline',()=>{setSyncStatus('offline');flashSyncBar(t('sync_offline'),'offline',5000);});
+
+  } else {
+    // No Firebase — use local storage
+    useCloud=false;
+    if(window._fbConfigMissing){
+      document.getElementById('setupBanner').classList.add('show');
+    }
+    document.getElementById('loadMsg').textContent=t('loading_local');
+    setSyncStatus('setup');
+    loadLocal();
+    hideLoading();
+    buildCatPills();render();
+  }
+});
+
+function hideLoading(){
+  const ls=document.getElementById('loadingScreen');
+  document.getElementById('loadMsg').textContent=t('loading_done');
+  setTimeout(()=>ls.classList.add('hide'),400);
+  setTimeout(()=>ls.style.display='none',900);
+}
+
+// ── CLOCK ────────────────────────────────────────────────────────
+function tick(){
+  const n=new Date();
+  document.getElementById('clock').textContent=n.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});
+  document.getElementById('clockDate').textContent=n.toLocaleDateString(lang==='ar'?'ar-LB':'en-GB',{weekday:'short',month:'short',day:'numeric'});
+}
+setInterval(tick,1000);tick();
+
+// ── CATEGORIES ──────────────────────────────────────────────────
+function buildCatPills(){
+  const w=document.getElementById('catPills');w.innerHTML='';
+  const all_label=lang==='ar'?'الكل':'All';
+  ['All',...new Set(products.map(p=>p.cat))].forEach(c=>{
+    const el=document.createElement('button');
+    el.className='cat-pill'+(c===currentCat?' active':'');
+    el.textContent=c==='All'?all_label:(CAT_KEYS[c]?t(CAT_KEYS[c]):c);
+    el.onclick=()=>{currentCat=c;buildCatPills();render();};
+    w.appendChild(el);
+  });
+}
+
+// ── STATS ────────────────────────────────────────────────────────
+function buildStats(){
+  const v=getFiltered();
+  const ls=products.filter(p=>(p.stock||0)<10).length;
+  document.getElementById('lowStockCount').textContent=ls;
+  const b=document.getElementById('lowStockBanner');
+  if(ls>0){b.style.display='flex';document.getElementById('lowStockMsg').textContent=`${ls} ${ls===1?t('low_banner_1'):t('low_banner')}`;}
+  else b.style.display='none';
+  document.getElementById('statsGrid').innerHTML=[
+    {l:t('stat_items'),v:v.length,i:'📦',s:`${products.length} ${t('stat_db')}`},
+    {l:t('stat_margin'),v:(v.length?(v.reduce((s,p)=>s+margin(p),0)/v.length).toFixed(1):0)+'%',i:'📈',s:t('stat_shown')},
+    {l:t('stat_units'),v:v.reduce((s,p)=>s+(p.stock||0),0).toLocaleString(),i:'🗃️',s:t('stat_stock')},
+    {l:t('stat_low'),v:ls,i:'⚠️',s:t('stat_below'),a:ls>0},
+  ].map(s=>`<div class="stat-card"><div class="lbl">${s.i} ${s.l}</div><div class="val" style="${s.a&&s.v>0?'color:var(--red)':''}">${s.v}</div><div class="sub">${s.s}</div></div>`).join('');
+}
+
+// ── FILTER/SORT ──────────────────────────────────────────────────
+function getFiltered(){
+  const q=document.getElementById('searchInput').value.toLowerCase().trim();
+  return products.filter(p=>{
+    if(currentView==='lowstock')return(p.stock||0)<10;
+    const mc=currentCat==='All'||p.cat===currentCat;
+    const mq=!q||p.name.toLowerCase().includes(q)||(p.barcode||'').includes(q)||p.cat.toLowerCase().includes(q);
+    return mc&&mq;
+  }).sort((a,b)=>{
+    if(!sortKey)return 0;
+    let av=sortKey==='margin'?margin(a):sortKey==='name'?a.name:a[sortKey];
+    let bv=sortKey==='margin'?margin(b):sortKey==='name'?b.name:b[sortKey];
+    if(typeof av==='string')return sortAsc?av.localeCompare(bv):bv.localeCompare(av);
+    return sortAsc?av-bv:bv-av;
+  });
+}
+function toggleSort(k){
+  ['sName','sRetail','sMargin'].forEach(id=>document.getElementById(id).classList.remove('active'));
+  const map={name:'sName',retail:'sRetail',margin:'sMargin',cost:'sRetail'};
+  if(map[k])document.getElementById(map[k]).classList.add('active');
+  if(sortKey===k)sortAsc=!sortAsc;else{sortKey=k;sortAsc=true;}
+  render();
+}
+function margin(p){if(!p.retail||!p.cost||p.retail<=0)return 0;return Math.round(((p.retail-p.cost)/p.retail)*100);}
+
+// ── RENDER ──────────────────────────────────────────────────────
+function render(){
+  buildStats();
+  const list=getFiltered();
+  const body=document.getElementById('tableBody');
+  document.getElementById('tableCount').textContent=`${list.length} ${lang==='ar'?'منتج':'item'+(list.length!==1?'s':'')}`;
+  document.getElementById('tableTitle').textContent=currentView==='lowstock'?t('low_stock_title'):currentCat==='All'?t('all_items'):(CAT_KEYS[currentCat]?t(CAT_KEYS[currentCat]):currentCat);
+  if(!list.length){body.innerHTML='';document.getElementById('emptyState').style.display='block';return;}
+  document.getElementById('emptyState').style.display='none';
+  body.innerHTML=list.map(p=>{
+    const m=margin(p);
+    const mc=m>=40?'#059669':m>=20?'#d97706':'#dc2626';
+    const sc=(p.stock||0)<5?'var(--red)':(p.stock||0)<10?'var(--yellow)':'var(--green)';
+    const cb=CAT_COLORS[p.cat]||'gray';
+    const cl=CAT_KEYS[p.cat]?t(CAT_KEYS[p.cat]):p.cat;
+    return `<tr onclick="openQV('${p.id}')">
+      <td><div class="item-name">${p.name}</div>${p.barcode?`<div class="item-barcode">${p.barcode}</div>`:''}</td>
+      <td><span class="badge badge-${cb}">${cl}</span></td>
+      <td><span class="price-cost">$${Number(p.cost).toFixed(2)}</span></td>
+      <td><span class="price-retail">$${Number(p.retail).toFixed(2)}</span></td>
+      <td><div class="margin-bar-wrap"><div class="margin-bar-bg"><div class="margin-bar-fill" style="width:${Math.min(m,100)}%;background:${mc}"></div></div><span class="margin-pct" style="color:${mc}">${m}%</span></div></td>
+      <td><span class="stock-dot" style="background:${sc}"></span><span style="font-size:13px;font-weight:500;color:${sc}">${p.stock||0}</span></td>
+      <td><div class="action-btns" onclick="event.stopPropagation()">
+        <button class="icon-btn" onclick="openEdit('${p.id}')">✏️</button>
+        <button class="icon-btn del" onclick="deleteItem('${p.id}')">🗑️</button>
+      </div></td>
+    </tr>`;
+  }).join('');
+}
+
+// ── VIEW ─────────────────────────────────────────────────────────
+function setView(v,el){
+  currentView=v;
+  if(el){document.querySelectorAll('.nav-item').forEach(x=>x.classList.remove('active'));el.classList.add('active');}
+  document.getElementById('calcPanel').style.display=v==='calc'?'block':'none';
+  render();
+}
+
+// ── MODAL ────────────────────────────────────────────────────────
+function openAdd(bc){
+  document.getElementById('editId').value='';
+  ['fName','fCost','fRetail','fStock'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('fCat').value='Beverages';
+  document.getElementById('fBarcode').value=bc||'';
+  document.getElementById('profitPreview').classList.remove('show');
+  document.getElementById('labelPreview').classList.remove('show');
+  document.getElementById('modalTitle').textContent=t('modal_add');
+  document.getElementById('saveBtn').textContent=t('btn_save_add');
+  document.getElementById('modalOverlay').classList.add('open');
+  setTimeout(()=>document.getElementById('fName').focus(),120);
+  if(bc)updateLabelPreview();
+}
+function openEdit(id){
+  const p=products.find(x=>x.id===id);if(!p)return;
+  document.getElementById('editId').value=id;
+  document.getElementById('fName').value=p.name;
+  document.getElementById('fCat').value=p.cat;
+  document.getElementById('fCost').value=p.cost;
+  document.getElementById('fRetail').value=p.retail;
+  document.getElementById('fStock').value=p.stock||0;
+  document.getElementById('fBarcode').value=p.barcode||'';
+  document.getElementById('modalTitle').textContent=t('modal_edit');
+  document.getElementById('saveBtn').textContent=t('btn_save_edit');
+  document.getElementById('modalOverlay').classList.add('open');
+  updateProfitPreview();updateLabelPreview();
+}
+function closeModal(e){if(e&&e.target!==document.getElementById('modalOverlay'))return;document.getElementById('modalOverlay').classList.remove('open');}
+
+async function saveItem(){
+  const name=document.getElementById('fName').value.trim();
+  const cat=document.getElementById('fCat').value;
+  const cost=parseFloat(document.getElementById('fCost').value);
+  const retail=parseFloat(document.getElementById('fRetail').value);
+  const stock=parseInt(document.getElementById('fStock').value)||0;
+  const barcode=document.getElementById('fBarcode').value.trim();
+  const id=document.getElementById('editId').value;
+  if(!name){showToast(t('toast_err_name'),'error');return;}
+  if(isNaN(cost)||isNaN(retail)){showToast(t('toast_err_price'),'error');return;}
+  if(retail<cost){showToast(t('toast_err_retail'),'error');return;}
+  const itemData={name,cat,cost,retail,stock,barcode};
+  if(id){
+    const idx=products.findIndex(p=>p.id===id);
+    products[idx]={...products[idx],...itemData};
+    if(useCloud){await cloudSave(id,products[idx]);flashSyncBar(t('sync_live'),'synced');}
+    else saveLocal();
+    showToast(t('toast_updated'),'success');
+  } else {
+    const newId=uid();
+    const newItem={id:newId,...itemData};
+    products.push(newItem);
+    if(useCloud){await cloudSave(newId,newItem);flashSyncBar(t('sync_live'),'synced');}
+    else saveLocal();
+    showToast(t('toast_added'),'success');
+  }
+  buildCatPills();render();
+  document.getElementById('modalOverlay').classList.remove('open');
+}
+
+async function deleteItem(id){
+  if(!confirm(t('confirm_delete')))return;
+  products=products.filter(p=>p.id!==id);
+  if(useCloud){await cloudDelete(id);flashSyncBar(t('sync_live'),'synced');}
+  else saveLocal();
+  buildCatPills();render();showToast(t('toast_deleted'),'error');
+}
+
+function updateProfitPreview(){
+  const c=parseFloat(document.getElementById('fCost').value);
+  const r=parseFloat(document.getElementById('fRetail').value);
+  const prev=document.getElementById('profitPreview');
+  if(isNaN(c)||isNaN(r)||r<=0||c>r){prev.classList.remove('show');return;}
+  const profit=r-c,m=((profit/r)*100).toFixed(1);
+  document.getElementById('ppProfit').textContent='$'+profit.toFixed(2);
+  document.getElementById('ppMargin').textContent=m+'%';
+  document.getElementById('ppMonthly').textContent='$'+(profit*100).toFixed(2);
+  prev.classList.add('show');
+}
+function updateLabelPreview(){
+  const name=document.getElementById('fName').value.trim();
+  const retail=parseFloat(document.getElementById('fRetail').value);
+  const barcode=document.getElementById('fBarcode').value.trim();
+  const lp=document.getElementById('labelPreview');
+  if(!name&&isNaN(retail)){lp.classList.remove('show');return;}
+  document.getElementById('lpName').textContent=name||'—';
+  document.getElementById('lpPrice').textContent=isNaN(retail)?'$—':'$'+retail.toFixed(2);
+  document.getElementById('lpBarcode').textContent=barcode||'|||||||||||||||';
+  document.getElementById('lpDate').textContent=new Date().toLocaleDateString();
+  lp.classList.add('show');
+}
+
+// ── QUICK VIEW ───────────────────────────────────────────────────
+function openQV(id){
+  const p=products.find(x=>x.id===id);if(!p)return;
+  qvCurrentId=id;
+  document.getElementById('qvName').textContent=p.name;
+  const cl=CAT_KEYS[p.cat]?t(CAT_KEYS[p.cat]):p.cat;
+  document.getElementById('qvCat').innerHTML=`<span class="badge badge-${CAT_COLORS[p.cat]||'gray'}">${cl}</span>`;
+  const m=margin(p);
+  document.getElementById('qvRows').innerHTML=[
+    [t('qv_cost'),'$'+Number(p.cost).toFixed(2)],
+    [t('qv_retail'),'$'+Number(p.retail).toFixed(2)],
+    [t('qv_profit'),'$'+(p.retail-p.cost).toFixed(2)],
+    [t('qv_margin'),m+'%'],
+    [t('qv_stock'),(p.stock||0)+(lang==='ar'?' وحدة':' units')],
+    [t('qv_barcode'),p.barcode||'—'],
+    [t('qv_monthly'),'$'+((p.retail-p.cost)*100).toFixed(2)],
+  ].map(([k,v])=>`<div class="qv-row"><span class="qv-key">${k}</span><span class="qv-val">${v}</span></div>`).join('');
+  document.getElementById('qvOverlay').classList.add('open');
+}
+function closeQV(){document.getElementById('qvOverlay').classList.remove('open');}
+function qvEdit(){closeQV();openEdit(qvCurrentId);}
+
+// ── CALC ─────────────────────────────────────────────────────────
+function calcMargin(){const c=parseFloat(document.getElementById('cCost').value),mp=parseFloat(document.getElementById('cMargin').value);if(isNaN(c)||isNaN(mp))return updCalc();const r=c/(1-mp/100);document.getElementById('cRetail').value=r.toFixed(2);updCalc(c,r);}
+function calcRetail(){calcMargin();}
+function calcMarginFromRetail(){const c=parseFloat(document.getElementById('cCost').value),r=parseFloat(document.getElementById('cRetail').value);if(isNaN(c)||isNaN(r)||r<=0)return updCalc();document.getElementById('cMargin').value=((r-c)/r*100).toFixed(1);updCalc(c,r);}
+function updCalc(c,r){if(!c||!r||r<=c){document.getElementById('calcProfit').textContent='—';document.getElementById('calcMarginOut').textContent='—';return;}document.getElementById('calcProfit').textContent='$'+(r-c).toFixed(2);document.getElementById('calcMarginOut').textContent=(((r-c)/r)*100).toFixed(1)+'%';}
+
+// ── EXPORT ───────────────────────────────────────────────────────
+function exportCSV(){
+  const h=[t('th_item'),t('th_cat'),'Cost ($)','Retail ($)','Margin (%)','Stock','Barcode'];
+  const rows=products.map(p=>[`"${p.name}"`,p.cat,Number(p.cost).toFixed(2),Number(p.retail).toFixed(2),margin(p)+'%',p.stock||0,p.barcode||'']);
+  const a=document.createElement('a');
+  a.href='data:text/csv;charset=utf-8,'+encodeURIComponent([h,...rows].map(r=>r.join(',')).join('\n'));
+  a.download='algardenia_'+new Date().toISOString().slice(0,10)+'.csv';a.click();
+  showToast(t('toast_exported'),'success');
+}
+
+// ── TOAST ────────────────────────────────────────────────────────
+let toastTimer;
+function showToast(msg,type='info'){const el=document.getElementById('toast');el.textContent=msg;el.className=`show ${type}`;clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.className='',2800);}
+
+// ══════════════════════════════════════════════════════════════════
+// BARCODE SCANNER — canvas frame-grab loop (works on all devices)
+// ══════════════════════════════════════════════════════════════════
+let scannerMode='lookup', lastScannedCode=null, scannerActive=false;
+let videoStream=null, availableCameras=[], currentCamIdx=0;
+let scanLoopId=null, zxingReader=null;
+
+async function openScannerModal(mode){
+  scannerMode=mode; lastScannedCode=null;
+  document.getElementById('scannerModal').classList.add('open');
+  document.getElementById('scannerResult').classList.remove('show');
+  document.getElementById('scannerResult').innerHTML='';
+  document.getElementById('scanActionBtn').style.display='none';
+  document.getElementById('scannerErr').style.display='none';
+  document.getElementById('scannerModeLabel').textContent=mode==='fill'?t('scan_mode_fill'):t('scan_mode_lookup');
+  document.getElementById('scanStatus').textContent=t('scanner_init');
+  await initScanner();
+}
+
+function closeScannerModal(){ stopScanner(); document.getElementById('scannerModal').classList.remove('open'); }
+
+async function initScanner(){
+  try{
+    // List cameras
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    availableCameras = devices.filter(d=>d.kind==='videoinput');
+    if(!availableCameras.length){ showScanErr(lang==='ar'?'لا توجد كاميرا.':'No cameras found on this device.'); return; }
+
+    const sel = document.getElementById('cameraSelect');
+    sel.innerHTML = availableCameras.map((c,i)=>`<option value="${i}">${c.label||'Camera '+(i+1)}</option>`).join('');
+
+    // Prefer back/environment camera on mobile
+    const backIdx = availableCameras.findIndex(c=>/back|rear|environment/i.test(c.label));
+    currentCamIdx = backIdx >= 0 ? backIdx : availableCameras.length - 1;
+    sel.value = currentCamIdx;
+
+    await startWithCam(currentCamIdx);
+  } catch(err){
+    if(err.name==='NotAllowedError'||err.name==='PermissionDeniedError'){
+      showScanErr(lang==='ar'?'تم رفض إذن الكاميرا. فعّل الكاميرا من إعدادات المتصفح.':'Camera permission denied. Please allow camera access in your browser.');
+    } else {
+      showScanErr('Could not start camera: '+err.message);
+    }
+  }
+}
+
+async function startWithCam(idx){
+  stopScanner();
+  scannerActive = true;
+  const cam = availableCameras[idx];
+  document.getElementById('scanStatus').textContent = t('scanner_scanning');
+  document.getElementById('scannerErr').style.display = 'none';
+
+  try{
+    // Build constraints — use deviceId if we have a label (means permission already granted)
+    const constraints = { video: cam && cam.deviceId && cam.label
+      ? { deviceId:{ exact: cam.deviceId }, width:{ ideal:1280 }, height:{ ideal:720 } }
+      : { facingMode:'environment', width:{ ideal:1280 }, height:{ ideal:720 } }
+    };
+
+    videoStream = await navigator.mediaDevices.getUserMedia(constraints);
+    const video = document.getElementById('scanVideo');
+    video.srcObject = videoStream;
+    await video.play();
+
+    // Re-enumerate now that permission is granted (labels now visible)
+    const devices2 = await navigator.mediaDevices.enumerateDevices();
+    availableCameras = devices2.filter(d=>d.kind==='videoinput');
+    const sel = document.getElementById('cameraSelect');
+    sel.innerHTML = availableCameras.map((c,i)=>`<option value="${i}">${c.label||'Camera '+(i+1)}</option>`).join('');
+    sel.value = currentCamIdx;
+
+    // Build ZXing reader once
+    if(!zxingReader){
+      if(window.ZXingBrowser){
+        zxingReader = new ZXingBrowser.BrowserMultiFormatReader();
+      } else if(window.ZXing){
+        zxingReader = new ZXing.MultiFormatReader();
+        zxingReader._isLegacy = true;
+      }
+    }
+
+    if(!zxingReader){ showScanErr('Barcode library not loaded. Check internet connection.'); return; }
+
+    // Start frame-grab loop
+    startScanLoop(video);
+
+  } catch(err){ showScanErr('Camera error: '+err.message); }
+}
+
+function startScanLoop(video){
+  const canvas = document.getElementById('scanCanvas');
+  const ctx = canvas.getContext('2d');
+  let lastAttempt = 0;
+
+  function loop(ts){
+    if(!scannerActive) return;
+
+    // Throttle to ~15 fps — enough for reliable scanning, not too heavy
+    if(ts - lastAttempt > 66 && video.readyState >= video.HAVE_ENOUGH_DATA){
+      lastAttempt = ts;
+      canvas.width  = video.videoWidth  || 640;
+      canvas.height = video.videoHeight || 480;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+      try{
+        let result;
+        if(zxingReader._isLegacy){
+          // Legacy ZXing library path
+          const imageData = ctx.getImageData(0,0,canvas.width,canvas.height);
+          const luminance = new ZXing.RGBLuminanceSource(imageData.data, canvas.width, canvas.height);
+          const binary    = new ZXing.HybridBinarizer(luminance);
+          result = zxingReader.decode(new ZXing.BinaryBitmap(binary));
+        } else {
+          // ZXingBrowser path — decodeFromCanvas
+          result = zxingReader.decodeFromCanvas(canvas);
+        }
+
+        if(result){
+          const code = typeof result.getText === 'function' ? result.getText() : result.text;
+          if(code && code !== lastScannedCode){
+            lastScannedCode = code;
+            scannerActive = false; // pause loop while showing result
+            onCodeDetected(code);
+            return;
+          }
+        }
+      } catch(e){
+        // NotFoundException is normal when no barcode in frame — ignore silently
+        if(e && e.name !== 'NotFoundException' && !String(e).includes('NotFoundException')){
+          console.warn('Scan error:', e);
+        }
+      }
+    }
+
+    scanLoopId = requestAnimationFrame(loop);
+  }
+
+  scanLoopId = requestAnimationFrame(loop);
+}
+
+async function switchCamera(){
+  currentCamIdx = parseInt(document.getElementById('cameraSelect').value);
+  await startWithCam(currentCamIdx);
+}
+
+function stopScanner(){
+  scannerActive = false;
+  if(scanLoopId){ cancelAnimationFrame(scanLoopId); scanLoopId=null; }
+  try{ const v=document.getElementById('scanVideo'); if(v.srcObject){v.srcObject.getTracks().forEach(t=>t.stop()); v.srcObject=null;} }catch(e){}
+  if(videoStream){ videoStream.getTracks().forEach(t=>t.stop()); videoStream=null; }
+}
+
+function showScanErr(msg){
+  document.getElementById('scannerErr').style.display='block';
+  document.getElementById('scannerErr').textContent='⚠️ '+msg;
+  document.getElementById('scanStatus').textContent=lang==='ar'?'خطأ':'Error';
+}
+
+function onCodeDetected(code){
+  if(navigator.vibrate)navigator.vibrate([60,40,60]);
+  document.getElementById('scanStatus').textContent=t('scanner_detected');
+  lastScannedCode=code;
+  if(scannerMode==='fill'){
+    document.getElementById('scannerResult').classList.add('show');
+    document.getElementById('scannerResult').innerHTML=`<div class="sr-barcode">📷 ${code}</div><div class="sr-name" style="font-size:14px;color:#e2e8f0">${t('scan_fill_ready')}</div>`;
+    document.getElementById('scanActionBtn').style.display='block';
+    document.getElementById('scanActionBtn').textContent=t('btn_use_barcode');
+    return;
+  }
+  const found=products.find(p=>p.barcode===code);
+  renderScanResult(code,found);
+  document.getElementById('scanActionBtn').style.display='block';
+  if(found){document.getElementById('scanActionBtn').textContent=t('scan_view');showToast(t('scan_found')+found.name,'scan');}
+  else{document.getElementById('scanActionBtn').textContent=t('scan_add_new');showToast(t('toast_new_barcode'),'info');}
+
+  // Add "Scan Again" button so user can keep scanning without reopening
+  setTimeout(()=>{
+    const res=document.getElementById('scannerResult');
+    if(res.classList.contains('show')){
+      const btn=document.createElement('button');
+      btn.textContent=lang==='ar'?'🔄 مسح مجدداً':'🔄 Scan Again';
+      btn.style.cssText='margin-top:10px;width:100%;padding:8px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(255,255,255,.08);color:#e2e8f0;font-size:13px;cursor:pointer;font-family:inherit;';
+      btn.onclick=()=>{
+        lastScannedCode=null;
+        document.getElementById('scannerResult').classList.remove('show');
+        document.getElementById('scanActionBtn').style.display='none';
+        document.getElementById('scanStatus').textContent=t('scanner_scanning');
+        scannerActive=true;
+        startScanLoop(document.getElementById('scanVideo'));
+      };
+      // Only add if not already there
+      if(!res.querySelector('button')) res.appendChild(btn);
+    }
+  },800);
+}
+function renderScanResult(code,item){
+  const box=document.getElementById('scannerResult');box.classList.add('show');
+  if(!item){box.innerHTML=`<div class="sr-barcode">📷 ${code}</div><div class="sr-not-found">${t('scan_not_found')}</div><div style="font-size:12px;color:#64748b;margin-top:5px">${t('scan_not_found_sub')}</div>`;return;}
+  const m=margin(item);const mc=m>=40?'green':m>=20?'yellow':'red';const sc=(item.stock||0)<5?'red':(item.stock||0)<10?'yellow':'green';
+  const cl=CAT_KEYS[item.cat]?t(CAT_KEYS[item.cat]):item.cat;
+  box.innerHTML=`<div class="sr-barcode">📷 ${code}</div><div class="sr-name">${item.name}</div><div class="sr-price">${lang==='ar'?'تكلفة':'Cost'} $${Number(item.cost).toFixed(2)} · <strong style="color:#60a5fa">${lang==='ar'?'بيع':'Retail'} $${Number(item.retail).toFixed(2)}</strong></div><div class="sr-detail"><span class="sr-chip">${cl}</span><span class="sr-chip ${mc}">${lang==='ar'?'هامش':'Margin'} ${m}%</span><span class="sr-chip ${sc}">${lang==='ar'?'مخزون':'Stock'} ${item.stock||0}</span></div>`;
+}
+function scanAction(){
+  if(scannerMode==='fill'){document.getElementById('fBarcode').value=lastScannedCode;updateLabelPreview();closeScannerModal();showToast(t('btn_fill_barcode'),'success');return;}
+  const found=products.find(p=>p.barcode===lastScannedCode);
+  closeScannerModal();
+  if(found)openQV(found.id);else openAdd(lastScannedCode);
+}
+
+// ── KEYBOARD ─────────────────────────────────────────────────────
+document.addEventListener('keydown',e=>{
+  if((e.ctrlKey&&e.key==='k')||e.key==='/'){e.preventDefault();document.getElementById('searchInput').focus();document.getElementById('searchInput').select();}
+  if(e.key==='Escape'){document.getElementById('modalOverlay').classList.remove('open');document.getElementById('qvOverlay').classList.remove('open');if(document.getElementById('scannerModal').classList.contains('open'))closeScannerModal();}
+  if((e.ctrlKey&&e.key==='n')||e.key==='Insert'){if(!document.getElementById('modalOverlay').classList.contains('open'))openAdd();}
+});
+document.getElementById('searchInput').addEventListener('input',render);
+
+// ── INIT ─────────────────────────────────────────────────────────
+applyLang();
+</script>
+</body>
+</html>
